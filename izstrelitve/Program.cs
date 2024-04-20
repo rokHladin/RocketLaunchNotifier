@@ -12,31 +12,26 @@ dynamic config = JsonConvert.DeserializeObject(File.ReadAllText("config.json"));
 string senderEmail = config.senderEmail;
 string senderPassword = config.senderPassword;
 
-
+// Get the time for next week
 DateTime currentDateTime = DateTime.Now;
 DateTime futureDateTime = currentDateTime.AddDays(7);
-Console.WriteLine(futureDateTime.ToString());
-Console.WriteLine(futureDateTime.ToString("MMMM dd, yyyy hh:mm tt"));
-
-
 
 List<RocketLaunchMoreInfo> newRocketLaunches = new List<RocketLaunchMoreInfo>();
 List<RocketLaunchMoreInfo> updatedRocketLaunches = new List<RocketLaunchMoreInfo>();
 
+// Get upcoming rocket launches from the API
 var client = new HttpClient();
 var request = new HttpRequestMessage(HttpMethod.Get,
     $"https://ll.thespacedevs.com/2.2.0/launch/upcoming/?window_start__gte={currentDateTime.ToString("yyyy-MM-dd")}&window_start__lt={futureDateTime.ToString("yyyy-MM-dd")}");
 var response = await client.SendAsync(request);
 response.EnsureSuccessStatusCode();
-Console.WriteLine(await response.Content.ReadAsStringAsync());
 
-
-// Poveži se na SQLite bazo ali jo ustvari, če še ne obstaja
+// Connect to the database and create the table if it doesn't exist
 using (var connection = new SQLiteConnection("Data Source=rocket_launches.db"))
 {
     connection.Open();
 
-    // Ustvari tabelo za shranjevanje izstrelitev, če še ne obstaja
+    // Create the table if it doesn't exist
     string createTableQuery = @"CREATE TABLE IF NOT EXISTS RocketLaunches (
                                 Id INTEGER PRIMARY KEY,
                                 Name TEXT NOT NULL,
@@ -46,23 +41,13 @@ using (var connection = new SQLiteConnection("Data Source=rocket_launches.db"))
         command.ExecuteNonQuery();
     }
 
-
-
-
-
     var jsonString = await response.Content.ReadAsStringAsync();
 
     var launches = JObject.Parse(jsonString)["results"];
     foreach (var launch in launches)
     {
-        Console.WriteLine(launch["name"]);
-        Console.WriteLine(launch["window_start"]);
-        Console.WriteLine(launch["window_end"]);
         DateTime launchStartDateTime = DateTime.Parse(launch["window_start"].ToString());
         DateTime launchEndDateTime = DateTime.Parse(launch["window_end"].ToString());
-        Console.WriteLine(launchStartDateTime.ToString("MMMM dd, yyyy hh:mm tt"));
-        Console.WriteLine(launch["mission"]["description"]);
-        Console.WriteLine();
 
         RocketLaunch formattedLaunch = new RocketLaunch
         {
@@ -75,7 +60,7 @@ using (var connection = new SQLiteConnection("Data Source=rocket_launches.db"))
         if (isNewLaunch)
         {
             Console.WriteLine("New launch detected: " + formattedLaunch.Name);
-            // Shrani novo izstrelitev v bazo
+            // Add new launch to the database
             string insertQuery = "INSERT INTO RocketLaunches (Name, Date) VALUES (@Name, @Date)";
             using (var insertCommand = new SQLiteCommand(insertQuery, connection))
             {
@@ -111,6 +96,7 @@ using (var connection = new SQLiteConnection("Data Source=rocket_launches.db"))
 
 
     }
+    // Create the HTML-formatted email message for new and updated rocket launches
     string htmlMessage = @"
 <!DOCTYPE html>
 <html>
@@ -124,8 +110,9 @@ using (var connection = new SQLiteConnection("Data Source=rocket_launches.db"))
     </style>
 </head>
 <body>";
-if(newRocketLaunches.Count > 0) {
-htmlMessage += @"
+    if (newRocketLaunches.Count > 0)
+    {
+        htmlMessage += @"
 
     <h2>Upcoming Rocket Launches This Week</h2>
         <tr>
@@ -135,10 +122,10 @@ htmlMessage += @"
             <th>Mission Description</th>
             <th>Image</th>
         </tr>";
-
-    foreach (RocketLaunchMoreInfo launch in newRocketLaunches)
-    {
-        htmlMessage += $@"
+        // Add new launches to the email message
+        foreach (RocketLaunchMoreInfo launch in newRocketLaunches)
+        {
+            htmlMessage += $@"
         <tr>
             <td><b>{launch.Name}</b></td>
             <td>{launch.Start.ToString("MMMM dd, yyyy hh:mm tt")}</td>
@@ -146,11 +133,12 @@ htmlMessage += @"
             <td>{launch.Description}</td>
             <td><img src='{launch.ImageUrl}' alt='Launch Image'></td>
         </tr>";
+        }
     }
-}
-if(updatedRocketLaunches.Count > 0) {
+    if (updatedRocketLaunches.Count > 0)
+    {
 
-    htmlMessage += @"
+        htmlMessage += @"
     </table>
     <h2>Updated Rocket Launches This Week</h2>
     <table>
@@ -161,10 +149,10 @@ if(updatedRocketLaunches.Count > 0) {
             <th>Mission Description</th>
             <th>Image</th>
         </tr>";
-
-    foreach (RocketLaunchMoreInfo launch in updatedRocketLaunches)
-    {
-        htmlMessage += $@"
+        // Add updated launches to the email message
+        foreach (RocketLaunchMoreInfo launch in updatedRocketLaunches)
+        {
+            htmlMessage += $@"
         <tr>
             <td><b>{launch.Name}</b></td>
             <td>{launch.Start.ToString("MMMM dd, yyyy hh:mm tt")}</td>
@@ -172,19 +160,19 @@ if(updatedRocketLaunches.Count > 0) {
             <td>{launch.Description}</td>
             <td><img src='{launch.ImageUrl}' alt='Launch Image'></td>
         </tr>";
-    }
+        }
 
-}
-// We can always add this part, because otherwise the email wont get sent
+    }
+    // We can always add this part, because otherwise the email wont get sent
     htmlMessage += @"
     </table>
 </body>
 </html>";
 
 
-    // SMTP server details
+    // SMTP server details, change these to your own
     string smtpServer = "smtp.gmail.com";
-    int smtpPort = 587; // Update with your SMTP server port
+    int smtpPort = 587; 
     if (newRocketLaunches.Count > 0 || updatedRocketLaunches.Count > 0)
     {
         try
